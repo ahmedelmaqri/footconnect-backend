@@ -1,14 +1,32 @@
 <?php
 namespace App\Models;
-use Illuminate\Database\Eloquent\Model;
 
-class Vendor extends Model
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
+
+class Vendor extends Authenticatable
 {
+    use HasApiTokens, Notifiable;
+
+    protected $table = 'vendors';
+
     protected $fillable = [
-        'user_id', 'shop_name', 'description',
+        'name', 'email', 'password',
+        'shop_name', 'description',
         'logo', 'banner', 'phone', 'address', 'status',
     ];
 
-    public function user() { return $this->belongsTo(User::class, 'user_id'); }
-    public function products() { return $this->hasMany(Product::class); }
+    protected $hidden = ['password'];
+
+    public function products()
+    {
+        return $this->hasMany(Product::class);
+    }
+
+    // relation vide pour éviter l'erreur
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'id', 'id');
+    }
 }

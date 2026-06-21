@@ -1,0 +1,268 @@
+[1mdiff --git a/app/Http/Controllers/AuthController.php b/app/Http/Controllers/AuthController.php[m
+[1mindex 846cb30..a8f5207 100644[m
+[1m--- a/app/Http/Controllers/AuthController.php[m
+[1m+++ b/app/Http/Controllers/AuthController.php[m
+[36m@@ -1,8 +1,9 @@[m
+ <?php[m
+[31m-[m
+ namespace App\Http\Controllers;[m
+ [m
+ use App\Models\User;[m
+[32m+[m[32muse App\Models\Admin;[m
+[32m+[m[32muse App\Models\Vendor;[m
+ use Illuminate\Http\Request;[m
+ use Illuminate\Support\Facades\Hash;[m
+ use Illuminate\Validation\ValidationException;[m
+[36m@@ -13,7 +14,7 @@[m [mpublic function register(Request $request)[m
+     {[m
+         $data = $request->validate([[m
+             'name'     => 'required|string|max:255',[m
+[31m-            'email'    => 'required|email|unique:users,email',[m
+[32m+[m[32m            'email'    => 'required|email|unique:players,email',[m
+             'password' => 'required|string|min:8|confirmed',[m
+             'position' => 'nullable|string',[m
+         ]);[m
+[36m@@ -35,11 +36,18 @@[m [mpublic function login(Request $request)[m
+         $data = $request->validate([[m
+             'email'    => 'required|email',[m
+             'password' => 'required|string',[m
+[32m+[m[32m            'role'     => 'required|in:joueur,admin,vendor',[m
+         ]);[m
+ [m
+[31m-        $user = User::where('email', $data['email'])->first();[m
+[32m+[m[32m        $model = match($data['role']) {[m
+[32m+[m[32m            'joueur' => User::class,[m
+[32m+[m[32m            'vendor' => Vendor::class,[m
+[32m+[m[32m            'admin'  => Admin::class,[m
+[32m+[m[32m        };[m
+[32m+[m
+[32m+[m[32m        $user = $model::where('email', $data['email'])->first();[m
+ [m
+[31m-        if (! $user ) {[m
+[32m+[m[32m        if (! $user || ! Hash::check($data['password'], $user->password)) {[m
+             throw ValidationException::withMessages([[m
+                 'email' => ['Identifiants incorrects.'],[m
+             ]);[m
+[36m@@ -47,7 +55,14 @@[m [mpublic function login(Request $request)[m
+ [m
+         $token = $user->createToken('footconnect')->plainTextToken;[m
+ [m
+[31m-        return response()->json(['token' => $token, 'user' => $user]);[m
+[32m+[m[32m        $userData = $user->toArray();[m
+[32m+[m[32m        $userData['role'] = $data['role'];[m
+[32m+[m
+[32m+[m[32m        return response()->json([[m
+[32m+[m[32m            'token' => $token,[m
+[32m+[m[32m            'user'  => $userData,[m
+[32m+[m[32m            'role'  => $data['role'],[m
+[32m+[m[32m        ]);[m
+     }[m
+ [m
+     public function logout(Request $request)[m
+[1mdiff --git a/app/Http/Controllers/Shop/VendorController.php b/app/Http/Controllers/Shop/VendorController.php[m
+[1mindex 44c2b62..20014f2 100644[m
+[1m--- a/app/Http/Controllers/Shop/VendorController.php[m
+[1m+++ b/app/Http/Controllers/Shop/VendorController.php[m
+[36m@@ -57,4 +57,8 @@[m [mpublic function reject($id)[m
+         $vendor->update(['status' => 'rejected']);[m
+         return response()->json($vendor);[m
+     }[m
+[32m+[m[32m    public function user()[m
+[32m+[m[32m{[m
+[32m+[m[32m    return $this->belongsTo(Player::class, 'user_id');[m
+[32m+[m[32m}[m
+ }[m
+\ No newline at end of file[m
+[1mdiff --git a/app/Models/User.php b/app/Models/User.php[m
+[1mindex 4f76768..76157e3 100644[m
+[1m--- a/app/Models/User.php[m
+[1m+++ b/app/Models/User.php[m
+[36m@@ -1,5 +1,4 @@[m
+ <?php[m
+[31m-[m
+ namespace App\Models;[m
+ [m
+ use Illuminate\Foundation\Auth\User as Authenticatable;[m
+[36m@@ -16,7 +15,6 @@[m [mclass User extends Authenticatable[m
+         'name',[m
+         'email',[m
+         'password',[m
+[31m-        'role',[m
+         'position',[m
+         'team_id',[m
+         'avatar',[m
+[36m@@ -24,15 +22,10 @@[m [mclass User extends Authenticatable[m
+         'nationality',[m
+     ];[m
+ [m
+[31m-    protected $hidden = ['password', 'remember_token'];[m
+[31m-[m
+[31m-    public function stats()[m
+[31m-    {[m
+[31m-        return $this->hasMany(Stat::class, 'player_id');[m
+[31m-    }[m
+[32m+[m[32m    protected $hidden = ['password'];[m
+ [m
+[31m-    public function team()[m
+[32m+[m[32m    public function vendor()[m
+     {[m
+[31m-        return $this->belongsTo(Team::class);[m
+[32m+[m[32m        return $this->hasOne(Vendor::class, 'user_id');[m
+     }[m
+ }[m
+\ No newline at end of file[m
+[1mdiff --git a/app/Models/Vendor.php b/app/Models/Vendor.php[m
+[1mindex 112d974..b353fcc 100644[m
+[1m--- a/app/Models/Vendor.php[m
+[1m+++ b/app/Models/Vendor.php[m
+[36m@@ -1,14 +1,38 @@[m
+ <?php[m
+ namespace App\Models;[m
+[31m-use Illuminate\Database\Eloquent\Model;[m
+ [m
+[31m-class Vendor extends Model[m
+[32m+[m[32muse Illuminate\Foundation\Auth\User as Authenticatable;[m
+[32m+[m[32muse Illuminate\Notifications\Notifiable;[m
+[32m+[m[32muse Laravel\Sanctum\HasApiTokens;[m
+[32m+[m
+[32m+[m[32mclass Vendor extends Authenticatable[m
+ {[m
+[32m+[m[32m    use HasApiTokens, Notifiable;[m
+[32m+[m
+[32m+[m[32m    protected $table = 'vendors';[m
+[32m+[m
+     protected $fillable = [[m
+[31m-        'user_id', 'shop_name', 'description',[m
+[31m-        'logo', 'banner', 'phone', 'address', 'status',[m
+[32m+[m[32m        'user_id',[m
+[32m+[m[32m        'email',[m
+[32m+[m[32m        'password',[m
+[32m+[m[32m        'shop_name',[m
+[32m+[m[32m        'description',[m
+[32m+[m[32m        'logo',[m
+[32m+[m[32m        'banner',[m
+[32m+[m[32m        'phone',[m
+[32m+[m[32m        'address',[m
+[32m+[m[32m        'status',[m
+     ];[m
+ [m
+[31m-    public function user() { return $this->belongsTo(User::class, 'user_id'); }[m
+[31m-    public function products() { return $this->hasMany(Product::class); }[m
+[32m+[m[32m    protected $hidden = ['password'];[m
+[32m+[m
+[32m+[m[32m    public function player()[m
+[32m+[m[32m    {[m
+[32m+[m[32m        return $this->belongsTo(User::class, 'user_id');[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    public function products()[m
+[32m+[m[32m    {[m
+[32m+[m[32m        return $this->hasMany(Product::class);[m
+[32m+[m[32m    }[m
+ }[m
+\ No newline at end of file[m
+[1mdiff --git a/app/Providers/AppServiceProvider.php b/app/Providers/AppServiceProvider.php[m
+[1mindex 452e6b6..37d45d0 100644[m
+[1m--- a/app/Providers/AppServiceProvider.php[m
+[1m+++ b/app/Providers/AppServiceProvider.php[m
+[36m@@ -1,7 +1,7 @@[m
+ <?php[m
+ [m
+ namespace App\Providers;[m
+[31m-[m
+[32m+[m[32muse Illuminate\Support\Facades\Schema;[m
+ use Illuminate\Support\ServiceProvider;[m
+ [m
+ class AppServiceProvider extends ServiceProvider[m
+[36m@@ -19,6 +19,6 @@[m [mpublic function register(): void[m
+      */[m
+     public function boot(): void[m
+     {[m
+[31m-        //[m
+[32m+[m[32m         Schema::defaultStringLength(191);[m
+     }[m
+ }[m
+[1mdiff --git a/database/seeders/PlayerSeeder.php b/database/seeders/PlayerSeeder.php[m
+[1mindex 9bff3bd..adda2da 100644[m
+[1m--- a/database/seeders/PlayerSeeder.php[m
+[1m+++ b/database/seeders/PlayerSeeder.php[m
+[36m@@ -2,49 +2,51 @@[m
+ [m
+ namespace Database\Seeders;[m
+ [m
+[32m+[m[32muse App\Models\User;[m
+ use Illuminate\Database\Seeder;[m
+ use Illuminate\Support\Facades\Hash;[m
+[31m-use App\Models\User;[m
+ [m
+ class PlayerSeeder extends Seeder[m
+ {[m
+     public function run(): void[m
+     {[m
+         $players = [[m
+[31m-            ['name' => 'Karim Benzema',    'position' => 'Attaquant',  'nationality' => 'Français'],[m
+[31m-            ['name' => 'Riyad Mahrez',     'position' => 'Attaquant',  'nationality' => 'Algérien'],[m
+[31m-            ['name' => 'Hakim Ziyech',     'position' => 'Milieu',     'nationality' => 'Marocain'],[m
+[31m-            ['name' => 'Achraf Hakimi',    'position' => 'Défenseur',  'nationality' => 'Marocain'],[m
+[31m-            ['name' => 'Yassine Bounou',   'position' => 'Gardien',    'nationality' => 'Marocain'],[m
+[31m-            ['name' => 'Sofiane Feghouli', 'position' => 'Milieu',     'nationality' => 'Algérien'],[m
+[31m-            ['name' => 'Islam Slimani',    'position' => 'Attaquant',  'nationality' => 'Algérien'],[m
+[31m-            ['name' => 'Nabil Fekir',      'position' => 'Milieu',     'nationality' => 'Français'],[m
+[31m-            ['name' => 'Aymen Barkok',     'position' => 'Milieu',     'nationality' => 'Marocain'],[m
+[31m-            ['name' => 'Azzedine Ounahi',  'position' => 'Milieu',     'nationality' => 'Marocain'],[m
+[31m-            ['name' => 'Bilal El Khannouss','position' => 'Milieu',    'nationality' => 'Marocain'],[m
+[31m-            ['name' => 'Nayef Aguerd',     'position' => 'Défenseur',  'nationality' => 'Marocain'],[m
+[31m-            ['name' => 'Romain Saïss',     'position' => 'Défenseur',  'nationality' => 'Marocain'],[m
+[31m-            ['name' => 'Noussair Mazraoui','position' => 'Défenseur',  'nationality' => 'Marocain'],[m
+[31m-            ['name' => 'Zakaria Aboukhlal','position' => 'Attaquant',  'nationality' => 'Marocain'],[m
+[31m-            ['name' => 'Youssef En-Nesyri','position' => 'Attaquant',  'nationality' => 'Marocain'],[m
+[31m-            ['name' => 'Sofyan Amrabat',   'position' => 'Milieu',     'nationality' => 'Marocain'],[m
+[31m-            ['name' => 'Jawad El Yamiq',   'position' => 'Défenseur',  'nationality' => 'Marocain'],[m
+[31m-            ['name' => 'Selim Amallah',    'position' => 'Milieu',     'nationality' => 'Marocain'],[m
+[31m-            ['name' => 'Ibrahim Diallo',   'position' => 'Milieu',     'nationality' => 'Guinéen'],[m
+[32m+[m[32m            // Gardiens[m
+[32m+[m[32m            ['name' => 'Youssef Alami',    'position' => 'Gardien',   'nationality' => 'Marocaine'],[m
+[32m+[m[32m            ['name' => 'Hamza Berrada',    'position' => 'Gardien',   'nationality' => 'Marocaine'],[m
+[32m+[m[32m            ['name' => 'Khalid Senhaji',   'position' => 'Gardien',   'nationality' => 'Marocaine'],[m
+[32m+[m
+[32m+[m[32m            // Défenseurs[m
+[32m+[m[32m            ['name' => 'Amine Tahiri',     'position' => 'Défenseur', 'nationality' => 'Marocaine'],[m
+[32m+[m[32m            ['name' => 'Omar Benali',      'position' => 'Défenseur', 'nationality' => 'Marocaine'],[m
+[32m+[m[32m            ['name' => 'Rachid Ziani',     'position' => 'Défenseur', 'nationality' => 'Marocaine'],[m
+[32m+[m[32m            ['name' => 'Bilal Cherkaoui',  'position' => 'Défenseur', 'nationality' => 'Marocaine'],[m
+[32m+[m[32m            ['name' => 'Soufiane Idrissi', 'position' => 'Défenseur', 'nationality' => 'Marocaine'],[m
+[32m+[m
+[32m+[m[32m            // Milieux[m
+[32m+[m[32m            ['name' => 'Mehdi Bouazza',    'position' => 'Milieu',    'nationality' => 'Marocaine'],[m
+[32m+[m[32m            ['name' => 'Karim Lahlou',     'position' => 'Milieu',    'nationality' => 'Marocaine'],[m
+[32m+[m[32m            ['name' => 'Nassim Filali',    'position' => 'Milieu',    'nationality' => 'Marocaine'],[m
+[32m+[m[32m            ['name' => 'Ayoub Mansouri',   'position' => 'Milieu',    'nationality' => 'Marocaine'],[m
+[32m+[m[32m            ['name' => 'Zakaria Amrani',   'position' => 'Milieu',    'nationality' => 'Marocaine'],[m
+[32m+[m
+[32m+[m[32m            // Attaquants[m
+[32m+[m[32m            ['name' => 'Ilyas Bensouda',   'position' => 'Attaquant', 'nationality' => 'Marocaine'],[m
+[32m+[m[32m            ['name' => 'Tariq Boukhris',   'position' => 'Attaquant', 'nationality' => 'Marocaine'],[m
+[32m+[m[32m            ['name' => 'Saad Elkhattabi',  'position' => 'Attaquant', 'nationality' => 'Marocaine'],[m
+[32m+[m[32m            ['name' => 'Reda Ouali',       'position' => 'Attaquant', 'nationality' => 'Marocaine'],[m
+[32m+[m[32m            ['name' => 'Nabil Zerrouki',   'position' => 'Attaquant', 'nationality' => 'Marocaine'],[m
+         ];[m
+ [m
+[31m-        foreach ($players as $index => $player) {[m
+[32m+[m[32m        foreach ($players as $i => $player) {[m
+             User::create([[m
+                 'name'        => $player['name'],[m
+[31m-                'email'       => 'player' . ($index + 1) . '@footconnect.com',[m
+[32m+[m[32m                'email'       => 'joueur' . ($i + 1) . '@footconnect.com',[m
+                 'password'    => Hash::make('password123'),[m
+[32m+[m[32m                'role'        => 'player',[m
+                 'position'    => $player['position'],[m
+                 'nationality' => $player['nationality'],[m
+[31m-                'role'        => 'player',[m
+[31m-                'date_of_birth' => now()->subYears(rand(20, 35))->format('Y-m-d'),[m
+             ]);[m
+         }[m
+[31m-[m
+[31m-        $this->command->info('✅ 20 joueurs créés !');[m
+     }[m
+ }[m
+\ No newline at end of file[m

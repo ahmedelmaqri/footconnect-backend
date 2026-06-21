@@ -1,8 +1,9 @@
 <?php
-
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Models\Admin;
+use App\Models\Vendor;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
@@ -13,7 +14,7 @@ class AuthController extends Controller
     {
         $data = $request->validate([
             'name'     => 'required|string|max:255',
-            'email'    => 'required|email|unique:users,email',
+            'email'    => 'required|email|unique:players,email',
             'password' => 'required|string|min:8|confirmed',
             'position' => 'nullable|string',
         ]);
@@ -26,7 +27,6 @@ class AuthController extends Controller
         ]);
 
         $token = $user->createToken('footconnect')->plainTextToken;
-
         return response()->json(['token' => $token, 'user' => $user], 201);
     }
 
@@ -35,11 +35,18 @@ class AuthController extends Controller
         $data = $request->validate([
             'email'    => 'required|email',
             'password' => 'required|string',
+            'role'     => 'required|in:joueur,admin,vendor',
         ]);
 
-        $user = User::where('email', $data['email'])->first();
+        $model = match($data['role']) {
+            'joueur' => User::class,
+            'vendor' => Vendor::class,
+            'admin'  => Admin::class,
+        };
 
-        if (! $user ) {
+        $user = $model::where('email', $data['email'])->first();
+
+        if (! $user || ! Hash::check($data['password'], $user->password)) {
             throw ValidationException::withMessages([
                 'email' => ['Identifiants incorrects.'],
             ]);
@@ -47,7 +54,11 @@ class AuthController extends Controller
 
         $token = $user->createToken('footconnect')->plainTextToken;
 
-        return response()->json(['token' => $token, 'user' => $user]);
+        return response()->json([
+            'token' => $token,
+            'user'  => $user,
+            'role'  => $data['role'],
+        ]);
     }
 
     public function logout(Request $request)
